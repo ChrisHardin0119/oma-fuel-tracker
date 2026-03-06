@@ -1,6 +1,6 @@
 import { AirlineCode, ThemeName, NotifSchedule } from './types';
 
-// Airline IATA codes we care about (added Mesa YV)
+// Airline IATA codes we track
 export const TARGET_AIRLINES: AirlineCode[] = ['WN', 'G4', 'AS', 'FX'];
 
 // Airline display info
