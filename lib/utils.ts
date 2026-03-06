@@ -1,14 +1,13 @@
 import { AirlineCode, ThemeName, NotifSchedule } from './types';
 
 // Airline IATA codes we care about (added Mesa YV)
-export const TARGET_AIRLINES: AirlineCode[] = ['WN', 'G4', 'AS', 'YV', 'FX'];
+export const TARGET_AIRLINES: AirlineCode[] = ['WN', 'G4', 'AS', 'FX'];
 
 // Airline display info
 export const AIRLINE_INFO: Record<AirlineCode, { name: string; color: string; bgColor: string; borderColor: string; emoji: string }> = {
   WN: { name: 'Southwest', color: '#FF6600', bgColor: 'bg-orange-50', borderColor: 'border-orange-400', emoji: '🟠' },
   G4: { name: 'Allegiant', color: '#6B7280', bgColor: 'bg-gray-50', borderColor: 'border-gray-400', emoji: '🟤' },
   AS: { name: 'Alaska', color: '#0033A0', bgColor: 'bg-blue-50', borderColor: 'border-blue-400', emoji: '🔵' },
-  YV: { name: 'Mesa', color: '#D97706', bgColor: 'bg-amber-50', borderColor: 'border-amber-400', emoji: '🟡' },
   FX: { name: 'FedEx', color: '#4D148C', bgColor: 'bg-purple-50', borderColor: 'border-purple-400', emoji: '🟣' },
 };
 
@@ -17,9 +16,13 @@ export const ICAO_TO_IATA: Record<string, AirlineCode> = {
   SWA: 'WN', // Southwest
   AAY: 'G4', // Allegiant
   ASA: 'AS', // Alaska
-  ASH: 'YV', // Mesa Airlines
   FDX: 'FX', // FedEx
 };
+
+// ICAO codes to explicitly EXCLUDE — these are not airlines we track
+// but their flights might otherwise match a tracked airline (e.g. Mesa
+// operates for Alaska and could get misidentified as AS)
+export const EXCLUDED_ICAO: string[] = ['ASH']; // Mesa Airlines
 
 // ---- Theme system ----
 export interface ThemeColors {
@@ -297,16 +300,22 @@ export function formatLastUpdated(isoString: string): string {
 
 // Determine the airline code from FlightAware data
 export function getAirlineCode(operatorIata: string | null, operator: string | null, ident: string): AirlineCode | null {
-  // IMPORTANT: Check the flight ident FIRST to catch Mesa (YV) flights
-  // that may have operator_iata set to Alaska (AS) due to codeshare
+  // First, exclude airlines we don't track (e.g. Mesa/ASH) so they
+  // don't accidentally match a tracked airline via codeshare
+  for (const icao of EXCLUDED_ICAO) {
+    if (ident.startsWith(icao)) return null;
+  }
+  if (operator && EXCLUDED_ICAO.includes(operator)) return null;
+
+  // Check ident prefix against tracked IATA codes
   for (const code of TARGET_AIRLINES) {
     if (ident.startsWith(code)) return code;
   }
-  // Check ICAO ident prefix (e.g., ASH4038 for Mesa)
+  // Check ICAO ident prefix
   for (const [icao, iata] of Object.entries(ICAO_TO_IATA)) {
     if (ident.startsWith(icao)) return iata;
   }
-  // Then try IATA operator code
+  // Try IATA operator code
   if (operatorIata && TARGET_AIRLINES.includes(operatorIata as AirlineCode)) {
     return operatorIata as AirlineCode;
   }

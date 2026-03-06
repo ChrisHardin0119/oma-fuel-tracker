@@ -92,8 +92,7 @@ export interface Flight {
   progress: number | null;
 }
 
-// Added Mesa (YV) as its own airline — they operate regional flights at OMA
-export type AirlineCode = 'WN' | 'G4' | 'AS' | 'FX' | 'YV';
+export type AirlineCode = 'WN' | 'G4' | 'AS' | 'FX';
 
 export interface FlightsData {
   arrivals: Flight[];
