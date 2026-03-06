@@ -21,7 +21,7 @@ import AirlineFilter from '@/components/AirlineFilter';
 import FlightList from '@/components/FlightList';
 import SettingsModal from '@/components/SettingsModal';
 
-const REFRESH_INTERVAL = 60 * 1000;
+const REFRESH_INTERVAL = 6 * 60 * 1000; // 6 minutes
 
 export default function Home() {
   const [data, setData] = useState<FlightsData | null>(null);
