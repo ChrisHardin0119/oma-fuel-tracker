@@ -8,8 +8,7 @@ export async function fetchFlights(apiKey: string): Promise<{ arrivals: Flight[]
   const url = `${BASE_URL}/airports/${AIRPORT}/flights`;
 
   // Fetch all pages
-  let allArrivals: FlightAwareFlight[] = [];
-  let allDepartures: FlightAwareFlight[] = [];
+  let allRawFlights: FlightAwareFlight[] = [];
   let cursor: string | undefined = undefined;
   let pageCount = 0;
   const maxPages = 5; // Safety limit
@@ -30,8 +29,9 @@ export async function fetchFlights(apiKey: string): Promise<{ arrivals: Flight[]
 
     const data = await response.json();
 
-    if (data.arrivals) allArrivals = allArrivals.concat(data.arrivals);
-    if (data.departures) allDepartures = allDepartures.concat(data.departures);
+    // Collect ALL flights from both arrays — we'll re-categorize ourselves
+    if (data.arrivals) allRawFlights = allRawFlights.concat(data.arrivals);
+    if (data.departures) allRawFlights = allRawFlights.concat(data.departures);
 
     // Check for next page
     cursor = data.links?.next ? extractCursor(data.links.next) : undefined;
@@ -39,15 +39,72 @@ export async function fetchFlights(apiKey: string): Promise<{ arrivals: Flight[]
     if (!cursor) break;
   }
 
-  // Filter and transform arrivals
-  const arrivals = allArrivals
-    .map(f => transformFlight(f, 'arrival'))
+  // De-duplicate by fa_flight_id (same flight may appear in both arrays)
+  const seen = new Set<string>();
+  const uniqueFlights: FlightAwareFlight[] = [];
+  for (const f of allRawFlights) {
+    if (!seen.has(f.fa_flight_id)) {
+      seen.add(f.fa_flight_id);
+      uniqueFlights.push(f);
+    }
+  }
+
+  // Categorize by ACTUAL origin/destination — not the API's arrays
+  // If destination is KOMA → arrival at OMA
+  // If origin is KOMA → departure from OMA
+  const rawArrivals: FlightAwareFlight[] = [];
+  const rawDepartures: FlightAwareFlight[] = [];
+
+  for (const f of uniqueFlights) {
+    const destCode = f.destination?.code || f.destination?.code_icao || '';
+    const originCode = f.origin?.code || f.origin?.code_icao || '';
+
+    if (destCode === AIRPORT || destCode === 'OMA') {
+      rawArrivals.push(f);
+    }
+    if (originCode === AIRPORT || originCode === 'OMA') {
+      rawDepartures.push(f);
+    }
+  }
+
+  // Build a map of tail number → departure info from OMA
+  // So we can show turnaround time on arrival cards
+  const tailToDeparture: Record<string, { departureTime: string; flightNumber: string; destination: string }> = {};
+  for (const f of rawDepartures) {
+    const tail = f.registration;
+    if (!tail) continue;
+    const depTime = f.scheduled_out || f.estimated_out || f.actual_out || '';
+    if (!depTime) continue;
+
+    // If we already have a departure for this tail, keep the earliest future one
+    if (tailToDeparture[tail]) {
+      const existing = new Date(tailToDeparture[tail].departureTime).getTime();
+      const current = new Date(depTime).getTime();
+      if (current < existing) {
+        tailToDeparture[tail] = {
+          departureTime: depTime,
+          flightNumber: f.ident_iata || f.ident || '',
+          destination: f.destination?.code_iata || f.destination?.code || '',
+        };
+      }
+    } else {
+      tailToDeparture[tail] = {
+        departureTime: depTime,
+        flightNumber: f.ident_iata || f.ident || '',
+        destination: f.destination?.code_iata || f.destination?.code || '',
+      };
+    }
+  }
+
+  // Filter and transform arrivals, attaching OMA departure info by tail number
+  const arrivals = rawArrivals
+    .map(f => transformFlight(f, 'arrival', tailToDeparture))
     .filter((f): f is Flight => f !== null)
     .sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
 
-  // Filter and transform departures
-  const departures = allDepartures
-    .map(f => transformFlight(f, 'departure'))
+  // Filter and transform departures (flights leaving OMA)
+  const departures = rawDepartures
+    .map(f => transformFlight(f, 'departure', tailToDeparture))
     .filter((f): f is Flight => f !== null)
     .sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
 
@@ -63,7 +120,11 @@ function extractCursor(nextUrl: string): string | undefined {
   }
 }
 
-function transformFlight(raw: FlightAwareFlight, type: 'arrival' | 'departure'): Flight | null {
+function transformFlight(
+  raw: FlightAwareFlight,
+  type: 'arrival' | 'departure',
+  tailToDeparture: Record<string, { departureTime: string; flightNumber: string; destination: string }>
+): Flight | null {
   // Determine airline
   const airlineCode = getAirlineCode(raw.operator_iata, raw.operator, raw.ident);
   if (!airlineCode) return null; // Not one of our airlines
@@ -80,6 +141,8 @@ function transformFlight(raw: FlightAwareFlight, type: 'arrival' | 'departure'):
   let gate: string;
   let terminal: string;
   let departureTime: string | null = null;
+  let departureFlightNumber: string | null = null;
+  let departureDestination: string | null = null;
 
   if (type === 'arrival') {
     scheduledTime = raw.scheduled_in || raw.scheduled_on || '';
@@ -87,8 +150,14 @@ function transformFlight(raw: FlightAwareFlight, type: 'arrival' | 'departure'):
     actualTime = raw.actual_in || raw.actual_on || null;
     gate = raw.gate_destination || '';
     terminal = raw.terminal_destination || '';
-    // For arrivals, also show when it departs (turnaround info)
-    departureTime = raw.scheduled_out ? raw.scheduled_out : null;
+
+    // Look up the OMA departure for this tail number
+    const tail = raw.registration;
+    if (tail && tailToDeparture[tail]) {
+      departureTime = tailToDeparture[tail].departureTime;
+      departureFlightNumber = tailToDeparture[tail].flightNumber;
+      departureDestination = tailToDeparture[tail].destination;
+    }
   } else {
     scheduledTime = raw.scheduled_out || raw.scheduled_off || '';
     estimatedTime = raw.estimated_out || raw.estimated_off || scheduledTime;
@@ -114,6 +183,8 @@ function transformFlight(raw: FlightAwareFlight, type: 'arrival' | 'departure'):
     estimatedTime,
     actualTime,
     departureTime,
+    departureFlightNumber,
+    departureDestination,
     status: raw.status || 'Unknown',
     type,
     progress: raw.progress_percent,

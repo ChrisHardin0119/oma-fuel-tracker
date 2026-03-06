@@ -46,7 +46,7 @@ export default function FlightCard({ flight }: FlightCardProps) {
           ) : (
             <span className="text-gray-400">No gate</span>
           )}
-          <span className="text-gray-300">•</span>
+          <span className="text-gray-300">·</span>
           <span className={`font-semibold ${isDelayed ? 'text-red-600' : 'text-gray-800'}`}>
             {flight.type === 'arrival' ? 'Arrives' : 'Departs'} {formatTime(bestTime)}
           </span>
@@ -62,7 +62,7 @@ export default function FlightCard({ flight }: FlightCardProps) {
               {flight.type === 'arrival' ? flight.origin : flight.destination}
             </span>
           </span>
-          <span className="text-gray-300">•</span>
+          <span className="text-gray-300">·</span>
           <span>{flight.aircraftType}</span>
         </div>
         <span className={`font-medium ${getStatusColor(flight.status)}`}>
@@ -77,10 +77,17 @@ export default function FlightCard({ flight }: FlightCardProps) {
         </div>
       )}
 
-      {/* Departure time for arrivals (turnaround info) */}
+      {/* OMA departure info for arrivals — shows when this plane leaves OMA */}
       {flight.type === 'arrival' && flight.departureTime && (
-        <div className="mt-1.5 text-xs text-gray-400">
-          Departs: {formatTime(flight.departureTime)}
+        <div className="mt-2 pt-2 border-t border-gray-100 text-xs">
+          <span className="text-gray-500">Leaves OMA: </span>
+          <span className="font-semibold text-gray-800">{formatTime(flight.departureTime)}</span>
+          {flight.departureFlightNumber && (
+            <span className="text-gray-500"> as {flight.departureFlightNumber}</span>
+          )}
+          {flight.departureDestination && (
+            <span className="text-gray-500"> → {flight.departureDestination}</span>
+          )}
         </div>
       )}
 

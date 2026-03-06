@@ -84,7 +84,9 @@ export interface Flight {
   scheduledTime: string; // ISO string
   estimatedTime: string; // ISO string
   actualTime: string | null; // ISO string
-  departureTime: string | null; // ISO string for turnaround
+  departureTime: string | null; // ISO string - when this plane departs OMA
+  departureFlightNumber: string | null; // outbound flight number from OMA
+  departureDestination: string | null; // where the outbound flight goes
   status: string;
   type: 'arrival' | 'departure';
   progress: number | null;
