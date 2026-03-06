@@ -1,20 +1,27 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FlightsData, Flight, AirlineCode } from '@/lib/types';
-import { TARGET_AIRLINES } from '@/lib/utils';
+import { FlightsData, Flight, AirlineCode, ThemeName, NotifSchedule } from '@/lib/types';
 import {
-  registerServiceWorker,
-  requestNotificationPermission,
-  getNotificationPermission,
-  checkForStatusChanges,
+  TARGET_AIRLINES, THEMES, ApiOverride,
+  loadTheme, saveTheme,
+  loadNotifSchedule, saveNotifSchedule,
+  loadHideArrived, saveHideArrived,
+  loadApiSchedule, saveApiSchedule,
+  loadApiOverride, saveApiOverride,
+  shouldFetchApi,
+} from '@/lib/utils';
+import {
+  registerServiceWorker, requestNotificationPermission,
+  getNotificationPermission, checkForStatusChanges,
 } from '@/lib/notifications';
 import Header from '@/components/Header';
 import TabToggle from '@/components/TabToggle';
 import AirlineFilter from '@/components/AirlineFilter';
 import FlightList from '@/components/FlightList';
+import SettingsModal from '@/components/SettingsModal';
 
-const REFRESH_INTERVAL = 60 * 1000; // 1 minute
+const REFRESH_INTERVAL = 60 * 1000;
 
 export default function Home() {
   const [data, setData] = useState<FlightsData | null>(null);
@@ -23,15 +30,41 @@ export default function Home() {
   const [activeFilters, setActiveFilters] = useState<AirlineCode[]>([...TARGET_AIRLINES]);
   const [error, setError] = useState<string | null>(null);
   const [notifPermission, setNotifPermission] = useState<string>('default');
-
-  // Track previous flights for status change detection
+  const [theme, setTheme] = useState<ThemeName>('dark');
+  const [notifSchedule, setNotifSchedule] = useState<NotifSchedule>({
+    enabled: true, days: [false, true, true, true, true, true, false],
+    startHour: 5, startMinute: 0, endHour: 23, endMinute: 0, repeat: true,
+  });
+  const [apiSchedule, setApiSchedule] = useState<NotifSchedule>({
+    enabled: true, days: [false, false, true, false, false, true, true],
+    startHour: 14, startMinute: 0, endHour: 22, endMinute: 0, repeat: true,
+  });
+  const [apiOverride, setApiOverride] = useState<ApiOverride>('auto');
+  const [isApiActive, setIsApiActive] = useState(false);
+  const [hideArrived, setHideArrived] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const previousFlightsRef = useRef<Flight[]>([]);
 
-  // Register service worker and check notification permission on mount
+  const themeColors = THEMES[theme];
+
+  // Load persisted settings on mount
   useEffect(() => {
+    setTheme(loadTheme());
+    setNotifSchedule(loadNotifSchedule());
+    setApiSchedule(loadApiSchedule());
+    setApiOverride(loadApiOverride());
+    setHideArrived(loadHideArrived());
     registerServiceWorker();
     setNotifPermission(getNotificationPermission());
   }, []);
+
+  const handleThemeChange = (t: ThemeName) => { setTheme(t); saveTheme(t); };
+  const handleNotifScheduleChange = (s: NotifSchedule) => { setNotifSchedule(s); saveNotifSchedule(s); };
+  const handleApiScheduleChange = (s: NotifSchedule) => { setApiSchedule(s); saveApiSchedule(s); };
+  const handleApiOverrideChange = (o: ApiOverride) => { setApiOverride(o); saveApiOverride(o); };
+  const handleToggleHideArrived = () => {
+    setHideArrived(prev => { saveHideArrived(!prev); return !prev; });
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -39,23 +72,12 @@ export default function Home() {
       const response = await fetch('/api/flights');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result: FlightsData = await response.json();
-
-      // Check for status changes on arrivals (notify when planes land/taxi)
       if (previousFlightsRef.current.length > 0 && result.arrivals) {
         checkForStatusChanges(previousFlightsRef.current, result.arrivals);
       }
-
-      // Store current arrivals for next comparison
-      if (result.arrivals) {
-        previousFlightsRef.current = [...result.arrivals];
-      }
-
+      if (result.arrivals) previousFlightsRef.current = [...result.arrivals];
       setData(result);
-      if (result.error) {
-        setError(result.error);
-      } else {
-        setError(null);
-      }
+      setError(result.error || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch flights');
     } finally {
@@ -63,12 +85,29 @@ export default function Home() {
     }
   }, []);
 
-  // Initial fetch + auto-refresh
+  // Auto-refresh — only fetches when schedule/override allows
   useEffect(() => {
+    // Always do initial fetch
     fetchData();
-    const interval = setInterval(fetchData, REFRESH_INTERVAL);
+
+    const interval = setInterval(() => {
+      const active = shouldFetchApi(apiSchedule, apiOverride);
+      setIsApiActive(active);
+      if (active) {
+        fetchData();
+      }
+    }, REFRESH_INTERVAL);
+
+    // Also update the active indicator immediately
+    setIsApiActive(shouldFetchApi(apiSchedule, apiOverride));
+
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, apiSchedule, apiOverride]);
+
+  // Manual refresh always works
+  const handleManualRefresh = () => {
+    fetchData();
+  };
 
   const toggleFilter = (airline: AirlineCode) => {
     setActiveFilters(prev => {
@@ -86,42 +125,59 @@ export default function Home() {
   };
 
   const flights = activeTab === 'arrivals' ? data?.arrivals || [] : data?.departures || [];
+  const arrivalCount = data?.arrivals?.filter(f => activeFilters.includes(f.airline)).length || 0;
+  const departureCount = data?.departures?.filter(f => activeFilters.includes(f.airline)).length || 0;
 
   return (
-    <main className="flex flex-col min-h-screen max-w-lg mx-auto">
+    <main className="flex flex-col min-h-screen w-full overflow-x-hidden" style={{ backgroundColor: themeColors.bodyBg }}>
       <Header
         lastUpdated={data?.lastUpdated || ''}
-        onRefresh={fetchData}
+        onRefresh={handleManualRefresh}
         isLoading={isLoading}
         notifPermission={notifPermission}
         onEnableNotifications={handleEnableNotifications}
+        onOpenSettings={() => setSettingsOpen(true)}
+        themeColors={themeColors}
       />
+
+      {/* Auto-refresh paused banner */}
+      {!isApiActive && (
+        <div className="mx-4 mt-2 px-3 py-2 rounded-lg text-xs text-center"
+          style={{ backgroundColor: themeColors.tabBg, color: themeColors.cardSubtext }}>
+          ⏸ Auto-refresh paused (outside schedule) · Tap refresh to fetch manually
+        </div>
+      )}
 
       <TabToggle
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        arrivalCount={data?.arrivals?.filter(f => activeFilters.includes(f.airline)).length || 0}
-        departureCount={data?.departures?.filter(f => activeFilters.includes(f.airline)).length || 0}
+        arrivalCount={arrivalCount}
+        departureCount={departureCount}
+        hideArrived={hideArrived}
+        onToggleHideArrived={handleToggleHideArrived}
+        themeColors={themeColors}
       />
-
-      <AirlineFilter
-        activeFilters={activeFilters}
-        onToggle={toggleFilter}
-      />
-
+      <AirlineFilter activeFilters={activeFilters} onToggle={toggleFilter} themeColors={themeColors} />
       {error && (
-        <div className="mx-4 mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">
-          {error}
-        </div>
+        <div className="mx-4 mt-3 p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-red-300 text-xs">{error}</div>
       )}
-
       <div className="mt-3 flex-1">
-        <FlightList
-          flights={flights}
-          activeFilters={activeFilters}
-          isLoading={isLoading}
-        />
+        <FlightList flights={flights} activeFilters={activeFilters} isLoading={isLoading} hideArrived={hideArrived} themeColors={themeColors} />
       </div>
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        theme={theme}
+        onThemeChange={handleThemeChange}
+        notifSchedule={notifSchedule}
+        onNotifScheduleChange={handleNotifScheduleChange}
+        apiSchedule={apiSchedule}
+        onApiScheduleChange={handleApiScheduleChange}
+        apiOverride={apiOverride}
+        onApiOverrideChange={handleApiOverrideChange}
+        isApiActive={isApiActive}
+        themeColors={themeColors}
+      />
     </main>
   );
 }

@@ -10,14 +10,14 @@ export interface FlightAwareResponse {
 }
 
 export interface FlightAwareFlight {
-  ident: string; // Flight number like "WN1234"
+  ident: string;
   ident_iata: string | null;
   ident_icao: string | null;
   fa_flight_id: string;
-  operator: string | null; // ICAO airline code
-  operator_iata: string | null; // IATA airline code
+  operator: string | null;
+  operator_iata: string | null;
   flight_number: string | null;
-  registration: string | null; // Tail number like "N8675309"
+  registration: string | null;
   atc_ident: string | null;
   inbound_fa_flight_id: string | null;
   codeshares: string[];
@@ -81,18 +81,19 @@ export interface Flight {
   originCity: string;
   destination: string;
   destinationCity: string;
-  scheduledTime: string; // ISO string
-  estimatedTime: string; // ISO string
-  actualTime: string | null; // ISO string
-  departureTime: string | null; // ISO string - when this plane departs OMA
-  departureFlightNumber: string | null; // outbound flight number from OMA
-  departureDestination: string | null; // where the outbound flight goes
+  scheduledTime: string;
+  estimatedTime: string;
+  actualTime: string | null;
+  departureTime: string | null;
+  departureFlightNumber: string | null;
+  departureDestination: string | null;
   status: string;
   type: 'arrival' | 'departure';
   progress: number | null;
 }
 
-export type AirlineCode = 'WN' | 'G4' | 'AS' | 'FX';
+// Added Mesa (YV) as its own airline — they operate regional flights at OMA
+export type AirlineCode = 'WN' | 'G4' | 'AS' | 'FX' | 'YV';
 
 export interface FlightsData {
   arrivals: Flight[];
@@ -100,3 +101,20 @@ export interface FlightsData {
   lastUpdated: string;
   error?: string;
 }
+
+// Theme types
+export type ThemeName = 'light' | 'dark' | 'darkBlue' | 'darkPurple';
+
+// Schedule settings — used for both notifications and API calls
+export interface Schedule {
+  enabled: boolean;
+  days: boolean[]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+  startHour: number; // 0-23
+  startMinute: number; // 0-59
+  endHour: number; // 0-23
+  endMinute: number; // 0-59
+  repeat: boolean;
+}
+
+// Backward compat alias
+export type NotifSchedule = Schedule;

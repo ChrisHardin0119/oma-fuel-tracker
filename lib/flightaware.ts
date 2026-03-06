@@ -125,8 +125,9 @@ function transformFlight(
   type: 'arrival' | 'departure',
   tailToDeparture: Record<string, { departureTime: string; flightNumber: string; destination: string }>
 ): Flight | null {
-  // Determine airline
-  const airlineCode = getAirlineCode(raw.operator_iata, raw.operator, raw.ident);
+  // Determine airline — check ident_iata first (catches Mesa YV flights)
+  const identToCheck = raw.ident_iata || raw.ident || '';
+  const airlineCode = getAirlineCode(raw.operator_iata, raw.operator, identToCheck);
   if (!airlineCode) return null; // Not one of our airlines
 
   const airline = AIRLINE_INFO[airlineCode];

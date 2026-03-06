@@ -1,16 +1,17 @@
 'use client';
 
-import { AirlineCode, Flight } from '@/lib/types';
-import { AIRLINE_INFO, TARGET_AIRLINES } from '@/lib/utils';
+import { AirlineCode } from '@/lib/types';
+import { AIRLINE_INFO, TARGET_AIRLINES, ThemeColors } from '@/lib/utils';
 
 interface AirlineFilterProps {
   activeFilters: AirlineCode[];
   onToggle: (airline: AirlineCode) => void;
+  themeColors: ThemeColors;
 }
 
-export default function AirlineFilter({ activeFilters, onToggle }: AirlineFilterProps) {
+export default function AirlineFilter({ activeFilters, onToggle, themeColors }: AirlineFilterProps) {
   return (
-    <div className="flex gap-2 px-4 mt-2 max-w-lg mx-auto overflow-x-auto">
+    <div className="flex flex-wrap gap-2 px-4 mt-2 w-full">
       {TARGET_AIRLINES.map((code) => {
         const info = AIRLINE_INFO[code];
         const isActive = activeFilters.includes(code);
@@ -18,12 +19,11 @@ export default function AirlineFilter({ activeFilters, onToggle }: AirlineFilter
           <button
             key={code}
             onClick={() => onToggle(code)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all border ${
-              isActive
-                ? 'text-white shadow-sm'
-                : 'bg-white text-gray-400 border-gray-200 opacity-60'
-            }`}
-            style={isActive ? { backgroundColor: info.color, borderColor: info.color } : {}}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all border"
+            style={isActive
+              ? { backgroundColor: info.color, borderColor: info.color, color: '#ffffff' }
+              : { backgroundColor: themeColors.filterInactiveBg, borderColor: themeColors.filterInactiveBorder, color: themeColors.filterInactiveText, opacity: 0.6 }
+            }
           >
             <span>{info.emoji}</span>
             <span>{info.name}</span>
