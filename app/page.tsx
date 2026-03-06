@@ -1,8 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { FlightsData, AirlineCode } from '@/lib/types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { FlightsData, Flight, AirlineCode } from '@/lib/types';
 import { TARGET_AIRLINES } from '@/lib/utils';
+import {
+  registerServiceWorker,
+  requestNotificationPermission,
+  getNotificationPermission,
+  checkForStatusChanges,
+} from '@/lib/notifications';
 import Header from '@/components/Header';
 import TabToggle from '@/components/TabToggle';
 import AirlineFilter from '@/components/AirlineFilter';
@@ -16,6 +22,16 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'arrivals' | 'departures'>('arrivals');
   const [activeFilters, setActiveFilters] = useState<AirlineCode[]>([...TARGET_AIRLINES]);
   const [error, setError] = useState<string | null>(null);
+  const [notifPermission, setNotifPermission] = useState<string>('default');
+
+  // Track previous flights for status change detection
+  const previousFlightsRef = useRef<Flight[]>([]);
+
+  // Register service worker and check notification permission on mount
+  useEffect(() => {
+    registerServiceWorker();
+    setNotifPermission(getNotificationPermission());
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -23,6 +39,17 @@ export default function Home() {
       const response = await fetch('/api/flights');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result: FlightsData = await response.json();
+
+      // Check for status changes on arrivals (notify when planes land/taxi)
+      if (previousFlightsRef.current.length > 0 && result.arrivals) {
+        checkForStatusChanges(previousFlightsRef.current, result.arrivals);
+      }
+
+      // Store current arrivals for next comparison
+      if (result.arrivals) {
+        previousFlightsRef.current = [...result.arrivals];
+      }
+
       setData(result);
       if (result.error) {
         setError(result.error);
@@ -46,12 +73,16 @@ export default function Home() {
   const toggleFilter = (airline: AirlineCode) => {
     setActiveFilters(prev => {
       if (prev.includes(airline)) {
-        // Don't allow deselecting all
         if (prev.length === 1) return prev;
         return prev.filter(a => a !== airline);
       }
       return [...prev, airline];
     });
+  };
+
+  const handleEnableNotifications = async () => {
+    const granted = await requestNotificationPermission();
+    setNotifPermission(granted ? 'granted' : 'denied');
   };
 
   const flights = activeTab === 'arrivals' ? data?.arrivals || [] : data?.departures || [];
@@ -62,6 +93,8 @@ export default function Home() {
         lastUpdated={data?.lastUpdated || ''}
         onRefresh={fetchData}
         isLoading={isLoading}
+        notifPermission={notifPermission}
+        onEnableNotifications={handleEnableNotifications}
       />
 
       <TabToggle
