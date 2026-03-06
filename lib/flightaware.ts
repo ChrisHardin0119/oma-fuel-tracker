@@ -5,38 +5,55 @@ const BASE_URL = 'https://aeroapi.flightaware.com/aeroapi';
 const AIRPORT = 'KOMA';
 
 export async function fetchFlights(apiKey: string): Promise<{ arrivals: Flight[]; departures: Flight[] }> {
-  const url = `${BASE_URL}/airports/${AIRPORT}/flights`;
+  const baseUrl = `${BASE_URL}/airports/${AIRPORT}/flights`;
 
-  // Fetch all pages
+  // We need to hit THREE endpoints to get the full picture:
+  // 1. /flights — recently arrived/departed flights (past ~12 hours)
+  // 2. /flights/scheduled_arrivals — upcoming & en-route arrivals
+  // 3. /flights/scheduled_departures — upcoming & scheduled departures
+  // The regular /flights endpoint alone MISSES en-route and upcoming flights!
+
+  const endpoints = [
+    baseUrl,
+    `${baseUrl}/scheduled_arrivals`,
+    `${baseUrl}/scheduled_departures`,
+  ];
+
   let allRawFlights: FlightAwareFlight[] = [];
-  let cursor: string | undefined = undefined;
-  let pageCount = 0;
-  const maxPages = 5; // Safety limit
 
-  while (pageCount < maxPages) {
-    const fetchUrl: string = cursor ? `${url}?cursor=${cursor}` : url;
-    const response = await fetch(fetchUrl, {
-      headers: {
-        'x-apikey': apiKey,
-        'Accept': 'application/json',
-      },
-    });
+  for (const endpoint of endpoints) {
+    let cursor: string | undefined = undefined;
+    let pageCount = 0;
+    const maxPages = 3; // Safety limit per endpoint
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`FlightAware API error ${response.status}: ${errorText}`);
+    while (pageCount < maxPages) {
+      const requestUrl: string = cursor ? `${endpoint}?cursor=${cursor}` : endpoint;
+      const response = await fetch(requestUrl, {
+        headers: {
+          'x-apikey': apiKey,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`FlightAware API error for ${endpoint}: ${response.status} ${errorText}`);
+        break; // Skip this endpoint but continue with others
+      }
+
+      const data = await response.json();
+
+      // Collect flights from whichever arrays exist in the response
+      if (data.arrivals) allRawFlights = allRawFlights.concat(data.arrivals);
+      if (data.departures) allRawFlights = allRawFlights.concat(data.departures);
+      if (data.scheduled_arrivals) allRawFlights = allRawFlights.concat(data.scheduled_arrivals);
+      if (data.scheduled_departures) allRawFlights = allRawFlights.concat(data.scheduled_departures);
+
+      // Check for next page
+      cursor = data.links?.next ? extractCursor(data.links.next) : undefined;
+      pageCount++;
+      if (!cursor) break;
     }
-
-    const data = await response.json();
-
-    // Collect ALL flights from both arrays — we'll re-categorize ourselves
-    if (data.arrivals) allRawFlights = allRawFlights.concat(data.arrivals);
-    if (data.departures) allRawFlights = allRawFlights.concat(data.departures);
-
-    // Check for next page
-    cursor = data.links?.next ? extractCursor(data.links.next) : undefined;
-    pageCount++;
-    if (!cursor) break;
   }
 
   // De-duplicate by fa_flight_id (same flight may appear in both arrays)

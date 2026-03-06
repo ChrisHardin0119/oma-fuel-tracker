@@ -1,3 +1,0 @@
-=== Adding safe directory === 
-=== Git Config === 
-=== Git Add === 
